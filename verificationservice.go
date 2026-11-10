@@ -68,6 +68,14 @@ func (s *FileVerificationService) VerifyFile(
 	}, nil
 }
 
+func (s *FileVerificationService) GenerateOutPutFile(
+	fileName string,
+	contents []byte,
+	expectedHash string,
+) (FileVerificationResult, error) {
+	return FileVerificationResult{}, nil
+}
+
 func computeSHA256(contents []byte) string {
 	hash := sha256.Sum256(contents)
 	return hex.EncodeToString(hash[:])

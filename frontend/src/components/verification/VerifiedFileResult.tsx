@@ -7,6 +7,7 @@ type VerifiedFileResultProps = {
   period: string;
   payments: string;
   amount: string;
+  status: string;
   onClear: () => void;
   onImport: () => void;
   onVerifyAgain: () => void;
@@ -19,6 +20,7 @@ export function VerifiedFileResult({
   period,
   payments,
   amount,
+  status,
   onClear,
   onImport,
   onVerifyAgain,
@@ -55,6 +57,7 @@ export function VerifiedFileResult({
           className="import-verified-button"
           type="button"
           onClick={onImport}
+          disabled={status === "disabled"}
         >
           <UploadCloud aria-hidden="true" />
           Générer le fichier vérifié
