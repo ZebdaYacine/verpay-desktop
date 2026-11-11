@@ -15,6 +15,10 @@ import { Call as $Call, CancellablePromise as $CancellablePromise } from "@wails
 // @ts-ignore: Unused imports
 import * as $models from "./models.js";
 
+export function GenerateOutPutFile(fileName: string, contents: string | null, expectedHash: string): $CancellablePromise<$models.FileVerificationResult> {
+    return $Call.ByID(2585985528, fileName, contents, expectedHash);
+}
+
 /**
  * VerifyFile validates the file extension, computes its SHA-256 hash and, when
  * provided, compares it with the expected hash.

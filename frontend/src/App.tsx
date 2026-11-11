@@ -42,6 +42,7 @@ const fileToBase64 = async (file: File): Promise<string> => {
 function App() {
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
   const [expectedHash, setExpectedHash] = useState("");
+  const [btnStatus, setBtnStatus] = useState("disabled");
 
   const [result, setResult] = useState<FileVerificationResponse | null>(null);
 
@@ -75,6 +76,7 @@ function App() {
 
     setSelectedFile(file);
     resetVerification();
+    setBtnStatus("disabled");
   };
 
   // ---------------------------------------------------
@@ -128,6 +130,7 @@ function App() {
       }
 
       setVerificationState("valid");
+      setBtnStatus("enabled");
 
       setMessage(
         normalizedHash
@@ -149,6 +152,46 @@ function App() {
     }
   };
 
+  const GenerateOutPutFile = async () => {
+    const file = selectedFile!;
+    const normalizedHash = expectedHash.trim().toLowerCase();
+
+    setVerificationState("checking");
+    setMessage("");
+    setResult(null);
+    setCalculatedHash("");
+    setIsImportReady(false);
+
+    try {
+      // Convert file to Base64
+      const encodedFile = await fileToBase64(file);
+
+      // Call Wails Go backend
+      const response = await FileVerificationService.GenerateOutPutFile(
+        file.name,
+        encodedFile,
+        normalizedHash,
+      );
+
+      alert(response);
+
+      setMessage(
+        normalizedHash
+          ? "Fichier et empreinte SHA-256 vérifiés avec succès."
+          : "Fichier S2IR vérifié avec succès.",
+      );
+    } catch (error: unknown) {
+      console.error("File verification error:", error);
+
+      setMessage(
+        error instanceof Error
+          ? error.message
+          : typeof error === "string"
+            ? error
+            : "Impossible de vérifier ce fichier.",
+      );
+    }
+  };
   // ---------------------------------------------------
   // UI
   // ---------------------------------------------------
@@ -183,8 +226,9 @@ function App() {
               payments={String(result.payment_count)}
               amount={result.total_amount}
               onClear={resetVerification}
-              onImport={() => setIsImportReady(true)}
+              onImport={() => GenerateOutPutFile()}
               onVerifyAgain={verifyFile}
+              status={btnStatus}
             />
           ) : (
             <>
