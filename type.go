@@ -1,6 +1,5 @@
 package main
 
-// CCPHeader represents a header record (type 0).
 type CCPHeader struct {
 	CCP          string `json:"ccp"`
 	TotalAmount  string `json:"total_amount"`
@@ -8,19 +7,29 @@ type CCPHeader struct {
 	Period       string `json:"period"`
 }
 
-// CCPPayment represents a payment record (type 1).
 type CCPPayment struct {
+	LineNumber  int    `json:"line_number"`
 	CCP         string `json:"ccp"`
 	Amount      string `json:"amount"`
 	Beneficiary string `json:"beneficiary"`
 }
 
-// CCPValidationResult contains validated file information.
 type CCPValidationResult struct {
-	Header       CCPHeader    `json:"header"`
-	Payments     []CCPPayment `json:"payments"`
-	PaymentCount int          `json:"payment_count"`
-	TotalAmount  string       `json:"total_amount"`
-	Valid        bool         `json:"valid"`
-	Message      string       `json:"message"`
+	Header CCPHeader `json:"header"`
+
+	Payments []CCPPayment `json:"payments"`
+
+	PaymentCount int    `json:"payment_count"`
+	TotalAmount  string `json:"total_amount"`
+
+	Duplicates     []CCPDuplicate `json:"duplicates"`
+	DuplicateCount int            `json:"duplicate_count"`
+
+	ExactDuplicateCount         int `json:"exact_duplicate_count"`
+	DifferentNameDuplicateCount int `json:"different_name_duplicate_count"`
+
+	Valid   bool   `json:"valid"`
+	Message string `json:"message"`
 }
+
+

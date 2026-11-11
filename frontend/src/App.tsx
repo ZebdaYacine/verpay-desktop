@@ -1,8 +1,5 @@
 import { useState } from "react";
-import {
-  FileVerificationService,
-  type FileVerificationResult,
-} from "../bindings/changeme";
+import { FileVerificationService } from "../bindings/changeme";
 
 import {
   FileDropzone,
@@ -14,6 +11,18 @@ import {
   VerifyButton,
   type VerificationState,
 } from "@/components/verification";
+
+// Match the JSON properties returned by your Go service.
+type FileVerificationResponse = {
+  file_name: string;
+  hash: string;
+  size: number;
+  valid: boolean;
+  message: string;
+  period: string;
+  payment_count: number;
+  total_amount: string;
+};
 
 const fileToBase64 = async (file: File): Promise<string> => {
   const bytes = new Uint8Array(await file.arrayBuffer());
@@ -34,7 +43,7 @@ function App() {
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
   const [expectedHash, setExpectedHash] = useState("");
 
-  const [result, setResult] = useState<FileVerificationResult | null>(null);
+  const [result, setResult] = useState<FileVerificationResponse | null>(null);
 
   const [isDragging, setIsDragging] = useState(false);
 
@@ -101,7 +110,8 @@ function App() {
         normalizedHash,
       );
 
-      const verificationResult = response as FileVerificationResult;
+      const verificationResult =
+        response as unknown as FileVerificationResponse;
 
       setResult(verificationResult);
 
@@ -166,12 +176,12 @@ function App() {
 
           {verificationState === "valid" && result ? (
             <VerifiedFileResult
-              fileName={result.fileName || selectedFile?.name || ""}
+              fileName={result.file_name || selectedFile?.name || ""}
               hash={calculatedHash}
               isImportReady={isImportReady}
               period={result.period}
-              payments={String(result.paymentCount)}
-              amount={result.totalAmount}
+              payments={String(result.payment_count)}
+              amount={result.total_amount}
               onClear={resetVerification}
               onImport={() => setIsImportReady(true)}
               onVerifyAgain={verifyFile}

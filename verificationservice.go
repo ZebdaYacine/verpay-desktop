@@ -10,15 +10,12 @@ import (
 
 // FileVerificationResult is returned after the backend has inspected an S2IR file.
 type FileVerificationResult struct {
-	FileName     string `json:"fileName"`
-	Hash         string `json:"hash"`
-	Size         int    `json:"size"`
-	Valid        bool   `json:"valid"`
-	HashMatches  bool   `json:"hashMatches"`
-	Message      string `json:"message"`
-	Period       string `json:"period"`
-	PaymentCount int    `json:"paymentCount"`
-	TotalAmount  string `json:"totalAmount"`
+	FileName    string `json:"fileName"`
+	Hash        string `json:"hash"`
+	Size        int    `json:"size"`
+	Valid       bool   `json:"valid"`
+	HashMatches bool   `json:"hashMatches"`
+	Message     string `json:"message"`
 }
 
 // FileVerificationService receives the selected file from the frontend and
@@ -50,22 +47,29 @@ func (s *FileVerificationService) VerifyFile(
 		return FileVerificationResult{}, fmt.Errorf("SHA256 mismatch")
 	}
 
-	validation, err := ValidateCCPFile(contents)
+	valid, err := isValidS2IRFile(contents)
 	if err != nil {
 		return FileVerificationResult{}, err
 	}
 
 	return FileVerificationResult{
-		FileName:     filepath.Base(fileName),
-		Hash:         hash,
-		Size:         len(contents),
-		Valid:        validation.Valid,
-		HashMatches:  expectedHash == "" || strings.EqualFold(hash, expectedHash),
-		Message:      validation.Message,
-		Period:       validation.Header.Period,
-		PaymentCount: validation.PaymentCount,
-		TotalAmount:  validation.TotalAmount,
+		FileName: filepath.Base(fileName),
+		Hash:     hash,
+		Size:     len(contents),
+		Valid:    valid,
+		Message:  "",
 	}, nil
+}
+
+func isValidS2IRFile(contents []byte) (bool, error) {
+
+	result, err := ValidateCCPFile(contents)
+
+	if err != nil {
+		return false, err
+	}
+
+	return result.Valid, nil
 }
 
 func computeSHA256(contents []byte) string {

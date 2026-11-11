@@ -11,7 +11,4 @@ export interface FileVerificationResult {
     "valid": boolean;
     "hashMatches": boolean;
     "message": string;
-    "period": string;
-    "paymentCount": number;
-    "totalAmount": string;
 }

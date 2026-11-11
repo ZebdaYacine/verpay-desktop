@@ -13,14 +13,39 @@ const (
 	CCPLineLength = 62
 )
 
+// ============================================================
+// STRUCTURES
+// ============================================================
+
+
+type CCPDuplicateType string
+
+const (
+	CCPDuplicateExact CCPDuplicateType = "EXACT"
+
+	CCPDuplicateDifferentName CCPDuplicateType = "DIFFERENT_NAME"
+)
+
+type CCPDuplicate struct {
+	Type       CCPDuplicateType `json:"type"`
+	FirstLine  int              `json:"first_line"`
+	SecondLine int              `json:"second_line"`
+
+	CCP        string `json:"ccp"`
+	Amount     string `json:"amount"`
+	FirstName  string `json:"first_name"`
+	SecondName string `json:"second_name"`
+}
 
 
 // ============================================================
 // MAIN VALIDATION
 // ============================================================
 
-// ValidateCCPFile validates an entire S2IR file line by line.
-func ValidateCCPFile(contents []byte) (*CCPValidationResult, error) {
+// ValidateCCPFile validates an S2IR file line by line.
+func ValidateCCPFile(
+	contents []byte,
+) (*CCPValidationResult, error) {
 
 	scanner := bufio.NewScanner(bytes.NewReader(contents))
 
@@ -30,13 +55,12 @@ func ValidateCCPFile(contents []byte) (*CCPValidationResult, error) {
 	)
 
 	result := &CCPValidationResult{
-		Payments: make([]CCPPayment, 0),
-		Valid:    false,
+		Payments:   make([]CCPPayment, 0),
+		Duplicates: make([]CCPDuplicate, 0),
+		Valid:      false,
 	}
 
 	lineNumber := 0
-
-	// Use big.Int to avoid financial precision errors.
 	totalAmount := new(big.Int)
 
 	// ========================================================
@@ -46,11 +70,10 @@ func ValidateCCPFile(contents []byte) (*CCPValidationResult, error) {
 	for scanner.Scan() {
 
 		lineNumber++
-
 		line := scanner.Text()
 
 		// ----------------------------------------------------
-		// 1. CHECK LINE LENGTH
+		// 1. VALIDATE LINE LENGTH
 		// ----------------------------------------------------
 
 		if len(line) != CCPLineLength {
@@ -63,12 +86,12 @@ func ValidateCCPFile(contents []byte) (*CCPValidationResult, error) {
 		}
 
 		// ----------------------------------------------------
-		// 2. CHECK LINE START
+		// 2. VALIDATE FIRST CHARACTER
 		// ----------------------------------------------------
 
 		if line[0] != '*' {
 			return nil, fmt.Errorf(
-				"line %d: line must start with '*'",
+				"line %d: must start with '*'",
 				lineNumber,
 			)
 		}
@@ -82,7 +105,7 @@ func ValidateCCPFile(contents []byte) (*CCPValidationResult, error) {
 		switch recordType {
 
 		// ====================================================
-		// HEADER TYPE 0
+		// HEADER - TYPE 0
 		// ====================================================
 
 		case '0':
@@ -107,7 +130,7 @@ func ValidateCCPFile(contents []byte) (*CCPValidationResult, error) {
 			result.Header = header
 
 		// ====================================================
-		// BODY TYPE 1
+		// PAYMENT - TYPE 1
 		// ====================================================
 
 		case '1':
@@ -119,7 +142,10 @@ func ValidateCCPFile(contents []byte) (*CCPValidationResult, error) {
 				)
 			}
 
-			payment, err := validateCCPPayment(line)
+			payment, err := validateCCPPayment(
+				line,
+				lineNumber,
+			)
 
 			if err != nil {
 				return nil, fmt.Errorf(
@@ -129,7 +155,7 @@ func ValidateCCPFile(contents []byte) (*CCPValidationResult, error) {
 				)
 			}
 
-			// Convert payment amount to big.Int
+			// Convert amount to integer.
 			amount, ok := new(big.Int).SetString(
 				payment.Amount,
 				10,
@@ -142,20 +168,20 @@ func ValidateCCPFile(contents []byte) (*CCPValidationResult, error) {
 				)
 			}
 
-			// Add payment amount to total
+			// Add amount to global total.
 			totalAmount.Add(totalAmount, amount)
 
-			// Increment payment count
+			// Increase payment count.
 			result.PaymentCount++
 
-			// Save payment
+			// Save payment.
 			result.Payments = append(
 				result.Payments,
 				payment,
 			)
 
 		// ====================================================
-		// UNKNOWN RECORD TYPE
+		// INVALID RECORD TYPE
 		// ====================================================
 
 		default:
@@ -169,7 +195,7 @@ func ValidateCCPFile(contents []byte) (*CCPValidationResult, error) {
 	}
 
 	// ========================================================
-	// CHECK SCANNER ERROR
+	// SCANNER ERRORS
 	// ========================================================
 
 	if err := scanner.Err(); err != nil {
@@ -193,20 +219,20 @@ func ValidateCCPFile(contents []byte) (*CCPValidationResult, error) {
 
 	if result.PaymentCount == 0 {
 		return nil, fmt.Errorf(
-			"CCP file does not contain any payments",
+			"CCP file contains no payments",
 		)
 	}
 
 	if result.PaymentCount != result.Header.PaymentCount {
 		return nil, fmt.Errorf(
-			"CCP payment count mismatch: header=%d, body=%d",
+			"payment count mismatch: header=%d, body=%d",
 			result.Header.PaymentCount,
 			result.PaymentCount,
 		)
 	}
 
 	// ========================================================
-	// CHECK GLOBAL AMOUNT
+	// CHECK HEADER GLOBAL AMOUNT
 	// ========================================================
 
 	headerAmount, ok := new(big.Int).SetString(
@@ -216,17 +242,39 @@ func ValidateCCPFile(contents []byte) (*CCPValidationResult, error) {
 
 	if !ok {
 		return nil, fmt.Errorf(
-			"invalid global amount in header",
+			"invalid header global amount",
 		)
 	}
 
-	// Header total must equal sum of all body amounts.
+	// Compare sum of body amounts with header amount.
 	if totalAmount.Cmp(headerAmount) != 0 {
 		return nil, fmt.Errorf(
-			"CCP amount mismatch: header=%s, body=%s",
+			"amount mismatch: header=%s, body=%s",
 			headerAmount.String(),
 			totalAmount.String(),
 		)
+	}
+
+	// ========================================================
+	// DETECT DUPLICATES
+	// ========================================================
+
+	result.Duplicates = DetectCCPDuplicates(
+		result.Payments,
+	)
+
+	result.DuplicateCount = len(result.Duplicates)
+
+	for _, duplicate := range result.Duplicates {
+
+		switch duplicate.Type {
+
+		case CCPDuplicateExact:
+			result.ExactDuplicateCount++
+
+		case CCPDuplicateDifferentName:
+			result.DifferentNameDuplicateCount++
+		}
 	}
 
 	// ========================================================
@@ -235,7 +283,18 @@ func ValidateCCPFile(contents []byte) (*CCPValidationResult, error) {
 
 	result.TotalAmount = totalAmount.String()
 	result.Valid = true
-	result.Message = "CCP file verified successfully"
+
+	if result.DuplicateCount > 0 {
+
+		result.Message = fmt.Sprintf(
+			"CCP file valid, but %d duplicate(s) detected",
+			result.DuplicateCount,
+		)
+
+	} else {
+
+		result.Message = "CCP file verified successfully"
+	}
 
 	return result, nil
 }
@@ -244,7 +303,6 @@ func ValidateCCPFile(contents []byte) (*CCPValidationResult, error) {
 // HEADER VALIDATION
 // ============================================================
 
-// validateCCPHeader validates record type 0.
 func validateCCPHeader(line string) (CCPHeader, error) {
 
 	header := CCPHeader{
@@ -255,7 +313,7 @@ func validateCCPHeader(line string) (CCPHeader, error) {
 
 	paymentCount := strings.TrimSpace(line[34:41])
 
-	// Validate CCP
+	// Validate CCP.
 	if !isCCPNumeric(header.CCP) {
 		return header, fmt.Errorf(
 			"invalid header CCP: %q",
@@ -263,7 +321,7 @@ func validateCCPHeader(line string) (CCPHeader, error) {
 		)
 	}
 
-	// Validate total amount
+	// Validate total amount.
 	if !isCCPNumeric(header.TotalAmount) {
 		return header, fmt.Errorf(
 			"invalid header total amount: %q",
@@ -271,7 +329,7 @@ func validateCCPHeader(line string) (CCPHeader, error) {
 		)
 	}
 
-	// Validate payment count
+	// Validate payment count.
 	if !isCCPNumeric(paymentCount) {
 		return header, fmt.Errorf(
 			"invalid header payment count: %q",
@@ -290,9 +348,10 @@ func validateCCPHeader(line string) (CCPHeader, error) {
 
 	header.PaymentCount = count
 
-	// Validate period MMAAAA
+	// Validate period: MMAAAA.
 	if len(header.Period) != 6 ||
 		!isCCPNumeric(header.Period) {
+
 		return header, fmt.Errorf(
 			"invalid period: %q",
 			header.Period,
@@ -309,8 +368,9 @@ func validateCCPHeader(line string) (CCPHeader, error) {
 		)
 	}
 
-	// Validate spaces positions 48-61
+	// Validate 14 spaces at positions 48-61.
 	if line[47:61] != strings.Repeat(" ", 14) {
+
 		return header, fmt.Errorf(
 			"positions 48-61 must contain 14 spaces",
 		)
@@ -323,16 +383,19 @@ func validateCCPHeader(line string) (CCPHeader, error) {
 // PAYMENT VALIDATION
 // ============================================================
 
-// validateCCPPayment validates record type 1.
-func validateCCPPayment(line string) (CCPPayment, error) {
+func validateCCPPayment(
+	line string,
+	lineNumber int,
+) (CCPPayment, error) {
 
 	payment := CCPPayment{
+		LineNumber:  lineNumber,
 		CCP:         strings.TrimSpace(line[1:21]),
 		Amount:      strings.TrimSpace(line[21:34]),
 		Beneficiary: strings.TrimSpace(line[34:61]),
 	}
 
-	// Validate beneficiary CCP
+	// Validate CCP.
 	if !isCCPNumeric(payment.CCP) {
 		return payment, fmt.Errorf(
 			"invalid beneficiary CCP: %q",
@@ -340,7 +403,7 @@ func validateCCPPayment(line string) (CCPPayment, error) {
 		)
 	}
 
-	// Validate payment amount
+	// Validate amount.
 	if !isCCPNumeric(payment.Amount) {
 		return payment, fmt.Errorf(
 			"invalid payment amount: %q",
@@ -348,7 +411,7 @@ func validateCCPPayment(line string) (CCPPayment, error) {
 		)
 	}
 
-	// Validate beneficiary name
+	// Validate beneficiary.
 	if payment.Beneficiary == "" {
 		return payment, fmt.Errorf(
 			"beneficiary name cannot be empty",
@@ -359,10 +422,120 @@ func validateCCPPayment(line string) (CCPPayment, error) {
 }
 
 // ============================================================
+// DUPLICATE DETECTION
+// ============================================================
+
+// DetectCCPDuplicates detects:
+// 1. Same CCP + same amount + same name.
+// 2. Same CCP + same amount + different name.
+//
+// Each additional occurrence is compared to the first
+// occurrence of the same CCP and amount.
+func DetectCCPDuplicates(
+	payments []CCPPayment,
+) []CCPDuplicate {
+
+	duplicates := make([]CCPDuplicate, 0)
+
+	type SeenPayment struct {
+		Payment CCPPayment
+		Line    int
+	}
+
+	// Key: CCP + normalized amount.
+	seen := make(map[string]SeenPayment)
+
+	for index, payment := range payments {
+
+		currentLine := payment.LineNumber
+
+		// Fallback for manually constructed payments.
+		if currentLine == 0 {
+			currentLine = index + 2
+		}
+
+		// Normalize amount.
+		amount, ok := new(big.Int).SetString(
+			strings.TrimSpace(payment.Amount),
+			10,
+		)
+
+		if !ok {
+			continue
+		}
+
+		normalizedAmount := amount.String()
+		ccp := strings.TrimSpace(payment.CCP)
+
+		key := ccp + "|" + normalizedAmount
+
+		previous, exists := seen[key]
+
+		// First occurrence.
+		if !exists {
+
+			seen[key] = SeenPayment{
+				Payment: payment,
+				Line:    currentLine,
+			}
+
+			continue
+		}
+
+		// A repeated CCP and amount was found.
+		duplicateType := CCPDuplicateExact
+
+		firstName := normalizeCCPName(
+			previous.Payment.Beneficiary,
+		)
+
+		secondName := normalizeCCPName(
+			payment.Beneficiary,
+		)
+
+		if firstName != secondName {
+			duplicateType = CCPDuplicateDifferentName
+		}
+
+		duplicates = append(
+			duplicates,
+			CCPDuplicate{
+				Type:       duplicateType,
+				FirstLine:  previous.Line,
+				SecondLine: currentLine,
+				CCP:        ccp,
+				Amount:     normalizedAmount,
+				FirstName:  previous.Payment.Beneficiary,
+				SecondName: payment.Beneficiary,
+			},
+		)
+	}
+
+	return duplicates
+}
+
+// ============================================================
+// NAME NORMALIZATION
+// ============================================================
+
+// normalizeCCPName ignores:
+// - Leading/trailing spaces
+// - Repeated spaces
+// - Uppercase/lowercase differences
+func normalizeCCPName(name string) string {
+
+	return strings.ToUpper(
+		strings.Join(
+			strings.Fields(name),
+			" ",
+		),
+	)
+}
+
+// ============================================================
 // NUMERIC VALIDATION
 // ============================================================
 
-// isCCPNumeric checks whether a string contains only digits.
 func isCCPNumeric(value string) bool {
 
 	if value == "" {
@@ -370,7 +543,6 @@ func isCCPNumeric(value string) bool {
 	}
 
 	for _, char := range value {
-
 		if char < '0' || char > '9' {
 			return false
 		}
@@ -379,4 +551,7 @@ func isCCPNumeric(value string) bool {
 	return true
 }
 
+// ============================================================
+// SERVICE COMPATIBILITY
+// ============================================================
 
